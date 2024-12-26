@@ -6,6 +6,7 @@
 #include <linux/signal.h>
 #include <linux/slab.h>
 #include <linux/module.h>
+#include <linux/of_net.h>
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
 #include <linux/mii.h>
@@ -38,6 +39,10 @@
 #define DRIVER_AUTHOR "Realtek linux nic maintainers <nic_swsd@realtek.com>"
 #define DRIVER_DESC "Realtek RTL8152/RTL8153 Based USB Ethernet Adapters"
 #define MODULENAME "r8152"
+
+static int ledsel = -1;
+module_param(ledsel, int, 0);
+MODULE_PARM_DESC(ledsel, "Override default LED configuration");
 
 #define R8152_PHY_ID		32
 
@@ -1679,24 +1684,29 @@ static int determine_ethernet_addr(struct r8152 *tp, struct sockaddr *sa)
 
 	sa->sa_family = dev->type;
 
-	ret = eth_platform_get_mac_address(&tp->udev->dev, sa->sa_data);
-	if (ret < 0) {
-		if (tp->version == RTL_VER_01) {
-			ret = pla_ocp_read(tp, PLA_IDR, 8, sa->sa_data);
-		} else {
-			/* if device doesn't support MAC pass through this will
-			 * be expected to be non-zero
-			 */
-			ret = vendor_mac_passthru_addr_read(tp, sa);
-			if (ret < 0)
-				ret = pla_ocp_read(tp, PLA_BACKUP, 8,
-						   sa->sa_data);
-		}
+	if (tp->version == RTL_VER_01) {
+		ret = pla_ocp_read(tp, PLA_IDR, 8, sa->sa_data);
+	} else {
+		/* if device doesn't support MAC pass through this will
+		 * be expected to be non-zero
+		 */
+		ret = vendor_mac_passthru_addr_read(tp, sa);
+		if (ret < 0)
+			ret = pla_ocp_read(tp, PLA_BACKUP, 8,
+					   sa->sa_data);
 	}
 
 	if (ret < 0) {
 		netif_err(tp, probe, dev, "Get ether addr fail\n");
 	} else if (!is_valid_ether_addr(sa->sa_data)) {
+		/* try to get MAC address from DT */
+		ret = of_get_mac_address(tp->udev->dev.of_node, sa->sa_data);
+		if (!ret) {
+			netif_info(tp, probe, dev, "DT mac addr %pM\n",
+				   sa->sa_data);
+			return 0;
+		}
+
 		netif_err(tp, probe, dev, "Invalid ether addr %pM\n",
 			  sa->sa_data);
 		eth_hw_addr_random(dev);
@@ -6864,6 +6874,18 @@ static void rtl_tally_reset(struct r8152 *tp)
 	ocp_write_word(tp, MCU_TYPE_PLA, PLA_RSTTALLY, ocp_data);
 }
 
+static void rtl_led_of_init(struct r8152 *tp) {
+	u32 data;
+
+	if (ledsel != -1)
+		data = ledsel;
+	else if (of_property_read_u32(tp->udev->dev.of_node,
+				   "realtek,ledsel", &data))
+		return;
+
+	ocp_write_word(tp, MCU_TYPE_PLA, PLA_LEDSEL, data);
+}
+
 static void r8152b_init(struct r8152 *tp)
 {
 	u32 ocp_data;
@@ -6905,6 +6927,8 @@ static void r8152b_init(struct r8152 *tp)
 	ocp_data = ocp_read_word(tp, MCU_TYPE_USB, USB_USB_CTRL);
 	ocp_data &= ~(RX_AGG_DISABLE | RX_ZERO_EN);
 	ocp_write_word(tp, MCU_TYPE_USB, USB_USB_CTRL, ocp_data);
+
+	rtl_led_of_init(tp);
 }
 
 static void r8153_init(struct r8152 *tp)
@@ -7045,6 +7069,8 @@ static void r8153_init(struct r8152 *tp)
 		tp->coalesce = COALESCE_SLOW;
 		break;
 	}
+
+	rtl_led_of_init(tp);
 }
 
 static void r8153b_init(struct r8152 *tp)
@@ -7127,6 +7153,8 @@ static void r8153b_init(struct r8152 *tp)
 	rtl_tally_reset(tp);
 
 	tp->coalesce = 15000;	/* 15 us */
+
+	rtl_led_of_init(tp);
 }
 
 static void r8153c_init(struct r8152 *tp)
@@ -7209,6 +7237,8 @@ static void r8153c_init(struct r8152 *tp)
 	rtl_tally_reset(tp);
 
 	tp->coalesce = 15000;	/* 15 us */
+
+	rtl_led_of_init(tp);
 }
 
 static void r8156_hw_phy_cfg(struct r8152 *tp)
@@ -8062,6 +8092,8 @@ static void r8156_init(struct r8152 *tp)
 	rtl_tally_reset(tp);
 
 	tp->coalesce = 15000;	/* 15 us */
+
+	rtl_led_of_init(tp);
 }
 
 static void r8156b_init(struct r8152 *tp)
@@ -8192,6 +8224,8 @@ static void r8156b_init(struct r8152 *tp)
 	rtl_tally_reset(tp);
 
 	tp->coalesce = 15000;	/* 15 us */
+
+	rtl_led_of_init(tp);
 }
 
 static bool rtl_check_vendor_ok(struct usb_interface *intf)

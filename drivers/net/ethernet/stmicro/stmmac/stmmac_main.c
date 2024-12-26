@@ -1234,7 +1234,10 @@ static int stmmac_init_phy(struct net_device *dev)
 		int addr = priv->plat->phy_addr;
 		struct phy_device *phydev;
 
-		phydev = mdiobus_get_phy(priv->mii, addr);
+		if (addr == -1)
+			phydev = phy_find_first(priv->mii);
+		else
+			phydev = mdiobus_get_phy(priv->mii, addr);
 		if (!phydev) {
 			netdev_err(priv->dev, "no phy at addr %d\n", addr);
 			return -ENODEV;
@@ -6989,6 +6992,8 @@ int stmmac_dvr_probe(struct device *device,
 	struct net_device *ndev = NULL;
 	struct stmmac_priv *priv;
 	u32 rxq;
+	u32 cpu_id;
+	struct cpumask cpumask;
 	int i, ret = 0;
 
 	ndev = devm_alloc_etherdev_mqs(device, sizeof(struct stmmac_priv),
@@ -7008,6 +7013,13 @@ int stmmac_dvr_probe(struct device *device,
 	priv->ioaddr = res->addr;
 	priv->dev->base_addr = (unsigned long)res->addr;
 	priv->plat->dma_cfg->multi_msi_en = priv->plat->multi_msi_en;
+
+	if (!of_property_read_u32(device->of_node, "handle_cpu_id", &cpu_id)) {
+		cpumask_clear(&cpumask);
+		cpumask_set_cpu(cpu_id, &cpumask);
+		irq_set_affinity(res->irq, &cpumask);
+		dev_dbg(device, "setup irq on cpu%d\n", cpu_id);
+	}
 
 	priv->dev->irq = res->irq;
 	priv->wol_irq = res->wol_irq;
@@ -7075,6 +7087,7 @@ int stmmac_dvr_probe(struct device *device,
 		priv->plat->dma_cfg->dche = false;
 
 	stmmac_check_ether_addr(priv);
+	ndev->priv_flags |= IFF_LIVE_ADDR_CHANGE;
 
 	ndev->netdev_ops = &stmmac_netdev_ops;
 

@@ -91,6 +91,11 @@ struct partition_meta_info {
 #define GENHD_FL_NO_PART_SCAN			0x0200
 #define GENHD_FL_HIDDEN				0x0400
 
+#if defined(CONFIG_RK_PARTITION)
+/* Flag of rockchip specific disk: eMMC/eSD, NVMe, etc. */
+#define GENHD_FL_RKPART				0x0800
+#endif
+
 enum {
 	DISK_EVENT_MEDIA_CHANGE			= 1 << 0, /* media changed */
 	DISK_EVENT_EJECT_REQUEST		= 1 << 1, /* eject requested */

@@ -11,6 +11,7 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
+#include <linux/pinctrl/consumer.h>
 #include <linux/platform_device.h>
 #include <linux/pwm.h>
 #include <linux/time.h>
@@ -392,6 +393,11 @@ static int rockchip_pwm_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static void rockchip_pwm_shutdown(struct platform_device *pdev)
+{
+	pinctrl_pm_select_sleep_state(&pdev->dev);
+}
+
 static struct platform_driver rockchip_pwm_driver = {
 	.driver = {
 		.name = "rockchip-pwm",
@@ -399,6 +405,7 @@ static struct platform_driver rockchip_pwm_driver = {
 	},
 	.probe = rockchip_pwm_probe,
 	.remove = rockchip_pwm_remove,
+	.shutdown = rockchip_pwm_shutdown,
 };
 module_platform_driver(rockchip_pwm_driver);
 
